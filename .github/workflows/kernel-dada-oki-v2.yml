@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
+      - uses: actions/checkout@v4
+
       - name: 克隆小米官方内核源码 (dada-v-oss)
         run: |
           git clone --depth=1 -b dada-v-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
@@ -80,16 +82,10 @@ jobs:
           grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" out/.config || true
           cd ..
 
-      - name: 补缺失厂商源码 (hwid stub, MiCode 未开源)
+      - name: 补缺失厂商源码 (自动扫描 stub)
         run: |
-          cd kernel
-          mkdir -p drivers/misc/hwid
-          printf '%s\n' 'config MI_HARDWARE_ID' '	tristate "Xiaomi hardware ID driver (stub)"' '	default n' > drivers/misc/hwid/Kconfig
-          echo "# upstream hwid source missing in MiCode dada-v-oss" > drivers/misc/hwid/Makefile
-          sed -i '/^CONFIG_MI_HARDWARE_ID=/d' out/.config
-          echo '# CONFIG_MI_HARDWARE_ID is not set' >> out/.config
-          grep -n "MI_HARDWARE_ID" out/.config || true
-          cd ..
+          python3 "$GITHUB_WORKSPACE/scripts/fix_missing_kconfigs.py" kernel
+          grep -n "MI_HARDWARE_ID" kernel/out/.config || true
 
       - name: 编译内核
         run: |
