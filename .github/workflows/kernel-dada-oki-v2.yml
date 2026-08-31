@@ -56,6 +56,7 @@ jobs:
           if [ -z "$CLANG_BIN" ]; then CLANG_BIN=$(find clang -path '*/bin/clang*' | head -1); fi
           if [ -z "$CLANG_BIN" ]; then CLANG_BIN=$(find clang -name 'clang*' -path '*/bin/*' | head -1); fi
           test -n "$CLANG_BIN" || { echo "ERROR: no clang found"; find clang -maxdepth 2 | head -40; exit 1; }
+          CLANG_BIN=$(readlink -f "$CLANG_BIN")
           echo "CLANG_BIN=$CLANG_BIN"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           "$CLANG_BIN" --version | head -2
@@ -85,9 +86,8 @@ jobs:
           # CONFIG_ANDROID_PARANOID_NETWORK is not set
           EOF
           KCONFIG_CONFIG=$PWD/out/.config ./scripts/kconfig/merge_config.sh -m -r $PWD/out/.config out/ns.config || true
-          cd out && make -f ../Makefile ARCH=arm64 olddefconfig 2>&1 | tail -3
-          grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" .config || true
-          cd ../..
+          grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" out/.config || true
+          cd ..
 
       - name: 编译内核
         run: |
