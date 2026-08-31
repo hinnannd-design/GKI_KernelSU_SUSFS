@@ -51,8 +51,11 @@ jobs:
           curl -LSs -o clang.tar.gz "https://github.com/ZyCromerZ/Clang/releases/download/${TAG}/${ASSET}"
           ls -l clang.tar.gz
           mkdir -p clang && tar xf clang.tar.gz -C clang
-          CLANG_BIN=$(find clang -path '*/bin/clang' -type f | head -1)
-          test -n "$CLANG_BIN" || { echo "ERROR: clang not found after extract"; find clang -maxdepth 3 | head -20; exit 1; }
+          ls clang/ | head -30
+          CLANG_BIN=$(find clang -path '*/bin/clang' | head -1)
+          if [ -z "$CLANG_BIN" ]; then CLANG_BIN=$(find clang -path '*/bin/clang*' | head -1); fi
+          if [ -z "$CLANG_BIN" ]; then CLANG_BIN=$(find clang -name 'clang*' -path '*/bin/*' | head -1); fi
+          test -n "$CLANG_BIN" || { echo "ERROR: no clang found"; find clang -maxdepth 2 | head -40; exit 1; }
           echo "CLANG_BIN=$CLANG_BIN"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           "$CLANG_BIN" --version | head -2
