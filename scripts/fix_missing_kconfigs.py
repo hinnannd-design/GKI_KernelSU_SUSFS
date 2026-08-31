@@ -31,9 +31,14 @@ for dirpath, dirnames, filenames in os.walk(root):
         if target is None:
             # use first candidate (root-relative, standard convention)
             target = candidates[0]
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            open(target, 'w').close()
-            created.append(target)
+            try:
+                d = os.path.dirname(target)
+                if not os.path.isdir(d):
+                    os.makedirs(d, exist_ok=True)
+                open(target, 'w').close()
+                created.append(target)
+            except OSError as e:
+                print('skip', target, ':', e)
 
 # also stub missing Makefiles in dirs referenced by obj-$(CONFIG_*) += xxx/
 for dirpath, dirnames, filenames in os.walk(root):
