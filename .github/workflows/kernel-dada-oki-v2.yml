@@ -72,19 +72,10 @@ jobs:
           done
           KCONFIG_CONFIG=$PWD/out/.config ./scripts/kconfig/merge_config.sh -m -r $FRAGS || true
           # namespace / droidspaces 必要配置
-          cat > out/ns.config <<'EOF'
-          CONFIG_NAMESPACES=y
-          CONFIG_PID_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_CGROUP_NS=y
-          CONFIG_SYSVIPC=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_DEVTMPFS=y
-          CONFIG_SECCOMP=y
-          CONFIG_SECCOMP_FILTER=y
-          CONFIG_USER_NS=y
-          # CONFIG_ANDROID_PARANOID_NETWORK is not set
-          EOF
+          printf '%s\n' \
+            'CONFIG_NAMESPACES=y' 'CONFIG_PID_NS=y' 'CONFIG_IPC_NS=y' 'CONFIG_CGROUP_NS=y' \
+            'CONFIG_SYSVIPC=y' 'CONFIG_POSIX_MQUEUE=y' 'CONFIG_DEVTMPFS=y' 'CONFIG_SECCOMP=y' \
+            'CONFIG_SECCOMP_FILTER=y' 'CONFIG_USER_NS=y' '# CONFIG_ANDROID_PARANOID_NETWORK is not set' > out/ns.config
           KCONFIG_CONFIG=$PWD/out/.config ./scripts/kconfig/merge_config.sh -m -r $PWD/out/.config out/ns.config || true
           grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" out/.config || true
           cd ..
@@ -93,11 +84,7 @@ jobs:
         run: |
           cd kernel
           mkdir -p drivers/misc/hwid
-          cat > drivers/misc/hwid/Kconfig <<'EOF'
-config MI_HARDWARE_ID
-	tristate "Xiaomi hardware ID driver (stub)"
-	default n
-EOF
+          printf '%s\n' 'config MI_HARDWARE_ID' '	tristate "Xiaomi hardware ID driver (stub)"' '	default n' > drivers/misc/hwid/Kconfig
           echo "# upstream hwid source missing in MiCode dada-v-oss" > drivers/misc/hwid/Makefile
           sed -i '/^CONFIG_MI_HARDWARE_ID=/d' out/.config
           echo '# CONFIG_MI_HARDWARE_ID is not set' >> out/.config
