@@ -97,6 +97,7 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           set -o pipefail
+          export PATH="$(dirname "$CLANG_BIN"):$PATH"
           export CC=$CLANG_BIN
           make O=out ARCH=arm64 CC=$CC LLVM=1 olddefconfig > out/olddefconfig.log 2>&1 || { echo "olddefconfig FAILED"; tail -20 out/olddefconfig.log; exit 1; }
           make -j$(nproc) O=out ARCH=arm64 CC=$CC LLVM=1 Image > out/build.log 2>&1 || { echo "make Image FAILED"; tail -30 out/build.log; exit 1; }
