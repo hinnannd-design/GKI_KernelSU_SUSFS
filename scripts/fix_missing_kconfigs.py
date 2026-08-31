@@ -33,9 +33,12 @@ for dirpath, dirnames, filenames in os.walk(root):
             target = candidates[0]
             try:
                 d = os.path.dirname(target)
-                if os.path.exists(d) and not os.path.isdir(d):
-                    # placeholder file or broken symlink: remove then mkdir
-                    os.remove(d) if not os.path.islink(d) else os.unlink(d)
+                # lexists: also true for dangling symlinks
+                if os.path.lexists(d) and not os.path.isdir(d):
+                    if os.path.islink(d):
+                        os.unlink(d)
+                    else:
+                        os.remove(d)
                 if not os.path.isdir(d):
                     os.makedirs(d, exist_ok=True)
                 open(target, 'w').close()
