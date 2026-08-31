@@ -89,6 +89,21 @@ jobs:
           grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" out/.config || true
           cd ..
 
+      - name: 补缺失厂商源码 (hwid stub, MiCode 未开源)
+        run: |
+          cd kernel
+          mkdir -p drivers/misc/hwid
+          cat > drivers/misc/hwid/Kconfig <<'EOF'
+config MI_HARDWARE_ID
+	tristate "Xiaomi hardware ID driver (stub)"
+	default n
+EOF
+          echo "# upstream hwid source missing in MiCode dada-v-oss" > drivers/misc/hwid/Makefile
+          sed -i '/^CONFIG_MI_HARDWARE_ID=/d' out/.config
+          echo '# CONFIG_MI_HARDWARE_ID is not set' >> out/.config
+          grep -n "MI_HARDWARE_ID" out/.config || true
+          cd ..
+
       - name: 编译内核
         run: |
           cd kernel
