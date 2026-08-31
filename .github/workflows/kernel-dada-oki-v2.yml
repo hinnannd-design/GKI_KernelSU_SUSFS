@@ -1,0 +1,114 @@
+name: Build Dada OKI v2 (SukiSU + namespace)
+on:
+  workflow_dispatch:
+    inputs:
+      droidspaces_patch:
+        description: "Droidspaces 补丁槽位"
+        required: true
+        type: choice
+        default: "345"
+        options: ["off", "678", "123", "345"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 克隆小米官方内核源码 (dada-v-oss)
+        run: |
+          git clone --depth=1 -b dada-v-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          du -sh kernel
+
+      - name: 集成 SukiSU 补丁
+        run: |
+          cd kernel
+          curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh | bash -s main
+          cd ..
+
+      - name: Droidspaces 补丁 (correct path)
+        if: ${{ inputs.droidspaces_patch != 'off' }}
+        run: |
+          cd kernel
+          PATCH_TAG=${{ inputs.droidspaces_patch }}
+          case "$PATCH_TAG" in
+            678) T=1_2_3 ;;
+            123) T=1_2_3 ;;
+            345) T=3_4_5 ;;
+          esac
+          SLOT=$T
+          curl -LSs -o /tmp/ds.patch "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_${SLOT}.patch"
+          head -3 /tmp/ds.patch
+          patch -p1 --forward < /tmp/ds.patch || echo "patch 部分失败，继续"
+          cd ..
+
+      - name: 准备 Clang 工具链 (ZyCromerZ, fixed URL)
+        run: |
+          TAG=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | jq -r .tag_name)
+          echo "clang tag: $TAG"
+          ASSET=Clang-${TAG%-release}.tar.gz
+          echo "asset: $ASSET"
+          curl -LSs -o clang.tar.gz "https://github.com/ZyCromerZ/Clang/releases/download/${TAG}/${ASSET}"
+          ls -l clang.tar.gz
+          mkdir -p clang && tar xf clang.tar.gz -C clang --strip-components=1
+          ./clang/bin/clang --version | head -2
+
+      - name: 生成 defconfig (厂商 merge 链) 并开启 namespace/Droidspaces 配置
+        run: |
+          cd kernel
+          mkdir -p out
+          # 厂商片段链 (perf/consolidate 按存在性合并；先合并 sun, 再 dada)
+          FRAGS="arch/arm64/configs/gki_defconfig"
+          for f in arch/arm64/configs/vendor/sun_perf.config arch/arm64/configs/vendor/sun_consolidate.config arch/arm64/configs/vendor/dada_perf.config arch/arm64/configs/vendor/dada_consolidate.config; do
+            if [ -f "$f" ]; then FRAGS="$FRAGS $f"; echo "merge: $f"; fi
+          done
+          KCONFIG_CONFIG=$PWD/out/.config ./scripts/kconfig/merge_config.sh -m -r $FRAGS || true
+          # namespace / droidspaces 必要配置
+          cat > out/ns.config <<'EOF'
+          CONFIG_NAMESPACES=y
+          CONFIG_PID_NS=y
+          CONFIG_IPC_NS=y
+          CONFIG_CGROUP_NS=y
+          CONFIG_SYSVIPC=y
+          CONFIG_POSIX_MQUEUE=y
+          CONFIG_DEVTMPFS=y
+          CONFIG_SECCOMP=y
+          CONFIG_SECCOMP_FILTER=y
+          CONFIG_USER_NS=y
+          # CONFIG_ANDROID_PARANOID_NETWORK is not set
+          EOF
+          KCONFIG_CONFIG=$PWD/out/.config ./scripts/kconfig/merge_config.sh -m -r $PWD/out/.config out/ns.config || true
+          cd out && make -f ../Makefile ARCH=arm64 olddefconfig 2>&1 | tail -3
+          grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=|CONFIG_DEVTMPFS=|CONFIG_SYSVIPC=" .config || true
+          cd ../..
+
+      - name: 编译内核
+        run: |
+          cd kernel
+          export ARCH=arm64 SUBARCH=arm64
+          export CC=$PWD/../clang/bin/clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make O=out ARCH=arm64 CC=$CC LLVM=1 olddefconfig 2>&1 | tail -5
+          make -j$(nproc) O=out ARCH=arm64 CC=$CC LLVM=1 Image 2>&1 | tail -30
+          ls -l out/arch/arm64/boot/Image || find out -name Image -o -name Image.gz | head
+          cd ..
+
+      - name: 打包 AnyKernel3 (WildKernels 模板)
+        run: |
+          git clone --depth=1 https://github.com/WildKernels/AnyKernel3.git ak3
+          rm -rf ak3/.git
+          IMG=$(find kernel/out -name Image | head -1)
+          echo "IMG=$IMG"
+          cp "$IMG" ak3/Image
+          ls -l ak3/Image
+          sed -i 's/^kernel.string=.*/kernel.string=M15-Dada-OKI-SukiSU-NS/' ak3/anykernel.sh || true
+          cd ak3 && zip -r9 ../M15-Dada-OKI-SukiSU-AnyKernel3.zip . -x '*.git/*' >/dev/null && cd ..
+          ls -l M15-Dada-OKI-SukiSU-AnyKernel3.zip
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: M15-Dada-OKI-SukiSU-AnyKernel3
+          path: |
+            M15-Dada-OKI-SukiSU-AnyKernel3.zip
+            kernel/out/.config
