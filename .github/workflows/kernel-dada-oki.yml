@@ -1,0 +1,126 @@
+name: Build Dada OKI (SukiSU + namespace)
+on:
+  workflow_dispatch:
+    inputs:
+      droidspaces_patch:
+        description: "Droidspaces 补丁槽位"
+        required: true
+        type: choice
+        default: "345"
+        options: ["off", "678", "123", "345"]
+      user_ns:
+        description: "开启 USER_NS"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: 克隆小米官方内核源码 (dada-v-oss)
+        run: |
+          git clone --depth=1 -b dada-v-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          echo "size:"; du -sh kernel
+
+      - name: 集成 SukiSU 补丁
+        run: |
+          cd kernel
+          curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh | bash -s main
+          cd ..
+
+      - name: Droidspaces 补丁(可选)
+        if: ${{ inputs.droidspaces_patch != 'off' }}
+        run: |
+          cd kernel
+          PATCH_TAG=${{ inputs.droidspaces_patch }}
+          case "$PATCH_TAG" in
+            678) T=6_7_8 ;;
+            123) T=1_2_3 ;;
+            345) T=3_4_5 ;;
+          esac
+          curl -LSs -o /tmp/ds.patch "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/${T}.patch"
+          patch -p1 < /tmp/ds.patch || echo "patch 部分失败，继续"
+          cd ..
+
+      - name: 准备 Clang 工具链 (ZyCromerZ)
+        run: |
+          TAG=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | jq -r .tag_name)
+          echo "clang tag: $TAG"
+          curl -LSs -o clang.tar.gz "https://github.com/ZyCromerZ/Clang/releases/download/${TAG}/Clang-${TAG}.tar.gz"
+          mkdir -p clang && tar xf clang.tar.gz -C clang --strip-components=1
+          ./clang/bin/clang --version | head -2
+
+      - name: 生成 defconfig (GKI 基 + 厂商片段) 并开启 namespace
+        run: |
+          cd kernel
+          mkdir -p out
+          # 合并 GKI + 厂商 sun/dada 片段
+          KCONFIG_CONFIG=$PWD/out/.config \
+          ./scripts/kconfig/merge_config.sh -m -r \
+            arch/arm64/configs/gki_defconfig \
+            arch/arm64/configs/vendor/sun_perf.config \
+            arch/arm64/configs/vendor/sun_consolidate.config || true
+          # 合并 dada 片段(存在才加)
+          if [ -f arch/arm64/configs/vendor/dada_perf.config ]; then
+            KCONFIG_CONFIG=$PWD/out/.config \
+            ./scripts/kconfig/merge_config.sh -m -r \
+              $PWD/out/.config \
+              arch/arm64/configs/vendor/dada_perf.config || true
+          fi
+          # 开启 namespace / seccomp / 必要项
+          for cfg in CONFIG_PID_NS CONFIG_IPC_NS CONFIG_CGROUP_NS CONFIG_NAMESPACES CONFIG_SECCOMP CONFIG_SECCOMP_FILTER CONFIG_USER_NS; do
+            echo "$cfg=y" >> out/ns.config
+          done
+          KCONFIG_CONFIG=$PWD/out/.config \
+          ./scripts/kconfig/merge_config.sh -m -r $PWD/out/.config out/ns.config || true
+          grep -E "CONFIG_PID_NS=|CONFIG_IPC_NS=|CONFIG_USER_NS=" out/.config || true
+          cd ..
+
+      - name: 编译内核
+        run: |
+          cd kernel
+          export ARCH=arm64 SUBARCH=arm64
+          export CC=$PWD/../clang/bin/clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make O=out ARCH=arm64 CC=$CC LLVM=1 olddefconfig 2>&1 | tail -5
+          make -j$(nproc) O=out ARCH=arm64 CC=$CC LLVM=1 Image 2>&1 | tail -30
+          ls -l out/arch/arm64/boot/Image || find out -name "Image" -o -name "Image.gz" | head
+          cd ..
+
+      - name: 打包 AnyKernel3
+        run: |
+          mkdir -p ak3/META-INF/com/google/android
+          cp kernel/out/arch/arm64/boot/Image ak3/Image
+          cat > ak3/anykernel.sh <<'EOF'
+          kernel.string=M15-Dada-OKI-SukiSU-NS
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=0
+          do.cleanup=1
+          block=/dev/block/bootdevice/by-name/boot
+          is_slot_device=1
+          slot_select=0
+          EOF
+          curl -LSs -o /tmp/ak3core.zip https://github.com/osm0sis/AnyKernel3/archive/refs/heads/master.zip
+          cd ak3 && unzip -o /tmp/ak3core.zip -d . >/dev/null 2>&1 || true
+          mkdir -p META-INF/com/google/android tools
+          # 复制模板必要的文件
+          for f in LICENSE banner META-INF/com/google/android/update-binary META-INF/com/google/android/updater-script tools/ak3-core.sh tools/magiskboot tools/busybox; do
+            if [ -f "AnyKernel3-master/$f" ]; then cp "AnyKernel3-master/$f" "$f" 2>/dev/null; mkdir -p "$(dirname "$f")"; cp "AnyKernel3-master/$f" "$f"; fi
+          done
+          # 保留我们自己的 anykernel.sh
+          cd ..
+          AK3_NAME="M15-Dada-OKI-SukiSU-AnyKernel3.zip"
+          cd ak3 && zip -r9 "../$AK3_NAME" . -x "AnyKernel3-master/*" >/dev/null && cd ..
+          ls -l "$AK3_NAME"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: M15-Dada-OKI-SukiSU-AnyKernel3
+          path: |
+            M15-Dada-OKI-SukiSU-AnyKernel3.zip
+            kernel/out/.config
