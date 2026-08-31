@@ -41,16 +41,21 @@ jobs:
           patch -p1 --forward < /tmp/ds.patch || echo "patch 部分失败，继续"
           cd ..
 
-      - name: 准备 Clang 工具链 (ZyCromerZ, fixed URL)
+      - name: 准备 Clang 工具链 (ZyCromerZ, locate by find)
         run: |
+          set -e
           TAG=$(curl -s https://api.github.com/repos/ZyCromerZ/Clang/releases/latest | jq -r .tag_name)
           echo "clang tag: $TAG"
           ASSET=Clang-${TAG%-release}.tar.gz
           echo "asset: $ASSET"
           curl -LSs -o clang.tar.gz "https://github.com/ZyCromerZ/Clang/releases/download/${TAG}/${ASSET}"
           ls -l clang.tar.gz
-          mkdir -p clang && tar xf clang.tar.gz -C clang --strip-components=1
-          ./clang/bin/clang --version | head -2
+          mkdir -p clang && tar xf clang.tar.gz -C clang
+          CLANG_BIN=$(find clang -path '*/bin/clang' -type f | head -1)
+          test -n "$CLANG_BIN" || { echo "ERROR: clang not found after extract"; find clang -maxdepth 3 | head -20; exit 1; }
+          echo "CLANG_BIN=$CLANG_BIN"
+          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+          "$CLANG_BIN" --version | head -2
 
       - name: 生成 defconfig (厂商 merge 链) 并开启 namespace/Droidspaces 配置
         run: |
@@ -88,9 +93,13 @@ jobs:
           export CC=$PWD/../clang/bin/clang
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
-          make O=out ARCH=arm64 CC=$CC LLVM=1 olddefconfig 2>&1 | tail -5
-          make -j$(nproc) O=out ARCH=arm64 CC=$CC LLVM=1 Image 2>&1 | tail -30
-          ls -l out/arch/arm64/boot/Image || find out -name Image -o -name Image.gz | head
+          set -o pipefail
+          export CC=$CLANG_BIN
+          make O=out ARCH=arm64 CC=$CC LLVM=1 olddefconfig > out/olddefconfig.log 2>&1 || { echo "olddefconfig FAILED"; tail -20 out/olddefconfig.log; exit 1; }
+          make -j$(nproc) O=out ARCH=arm64 CC=$CC LLVM=1 Image > out/build.log 2>&1 || { echo "make Image FAILED"; tail -30 out/build.log; exit 1; }
+          IMG=$(find out -name Image | head -1)
+          test -n "$IMG" || { echo "no Image produced"; exit 1; }
+          ls -l "$IMG"
           cd ..
 
       - name: 打包 AnyKernel3 (WildKernels 模板)
