@@ -6,14 +6,10 @@
 #   2. 在对应配置项后填入想要使用的 commit hash
 #   3. 留空表示使用该分支的最新提交
 #
-# 示例:
-#   gki-android14-6.1=abc123def456
-#   sukisu=def789abc123
-#
 # ================================================================
 
 # 是否启用自定义提交 (true/false)
-custom=false
+custom=true
 
 # ==================== SUSFS 各分支的 commit hash ====================
 # 仅当 custom=true 时生效
@@ -25,4 +21,5 @@ gki-android16-6.12=
 
 # ==================== SukiSU 的 commit hash ====================
 # 仅当 custom=true 且使用 SukiSU 变体时生效
-sukisu=
+# 固定到 2026-08-27 的 6c5603f0c8：builtin HEAD 的 kernel_umount.c 编译错误回归前的最后一个好提交
+sukisu=6c5603f0c853a94256940273efc433cbbc85f57a
